@@ -1,0 +1,25 @@
+{
+    "name": "choval/webpit",
+    "description": "A self contained Rest API for converting image/videos to WebP",
+    "type": "project",
+    "authors": [
+        {
+            "name": "Osvaldo Jiang",
+            "email": "osvaldo@publitar.com"
+        }
+    ],
+    "autoload": {
+      "psr-4": {
+        "Webpit\\": "src/"
+      }
+    },
+    "require": {
+        "react/http": "^0.8.4",
+        "react/filesystem": "^0.1.1",
+        "wyrihaximus/react-http-middleware-with-headers": "^1.0",
+        "clue/block-react": "^1.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^7"
+    }
+}
