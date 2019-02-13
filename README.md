@@ -57,7 +57,7 @@ The server responds with an array of convertion Ids
 
 ```
 {
-  "response": [
+  "conversions": [
     {
       "id": UID,
       "hash": MEDIA_SHA1,

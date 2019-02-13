@@ -8,12 +8,22 @@
             "email": "osvaldo@publitar.com"
         }
     ],
+    "repositories": [
+      {
+        "type": "vcs",
+        "url": "https://github.com/clue/reactphp-sqlite"
+      }
+    ],
     "autoload": {
+      "files": [
+        "src/constants.php"
+      ],
       "psr-4": {
         "Webpit\\": "src/"
       }
     },
     "require": {
+        "clue/reactphp-sqlite": "dev-master",
         "react/http": "^0.8.4",
         "react/filesystem": "^0.1.1",
         "wyrihaximus/react-http-middleware-with-headers": "^1.0",

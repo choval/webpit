@@ -237,6 +237,7 @@ final class Server {
    *
    */
   public function handleConvert(ServerRequestInterface $req) {
+    $defer = new Deferred;
     $headers = $req->getHeaders();
     $contentType = $headers['Content-Type'] ?? $headers['Content-type'] ?? $headers['content-type'] ?? false;
     if($contentType) {
@@ -260,15 +261,42 @@ final class Server {
         }
       }
       // PROCESS EACH FILE
+      $server = $req->getServerParams();
+      $userAgent = $req->getHeaderLine('User-Agent');
+      if(is_array($userAgent)) {
+        $userAgent = current($userAgent);
+      }
+
+      $promises = [];
       foreach($files as $file) {
+        $row = [];
+        $row['remote_address'] = $server['REMOTE_ADDR'];
+        $row['user_agent'] = $userAgent;
+
         if($file instanceof UploadedFileInterface) {
-          // TODO
+          $stream = $file->moveTo($row['input_path']);
         } else {
           // TODO
         }
+        $promises[] = $this->conversion->create($stream, $row);
       }
+      Promise\all($promises)
+        ->then(function($rows) use ($defer) {
+          $res = [];
+          $res['conversions'] = [];
+          foreach($rows as $row) {
+            $tmp = [];
+            $tmp['id'] = $row['id'];
+            $tmp['source'] = $row['source'];
+            $tmp['hash'] = 
+          }
+          $defer->resolve( new Response(200, ['Content-Type'=>'application/json'], json_encode($res) ) );
+        })
+        ->otherwise(function($e) use ($defer) {
+          $defer->reject($e);
+        });
     }
-    exit;
+    return $defer->promise();
   }
 
 
