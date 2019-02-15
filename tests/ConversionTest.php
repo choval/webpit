@@ -16,7 +16,7 @@ final class ConversionTest extends TestCase {
   public static function setUpBeforeClass() {
     static::$reactLoop = Factory::create();
     static::$converter = new Converter(static::$reactLoop);
-    static::$reactLoop->run();
+    // static::$reactLoop->run();
   }
   public function wait($promise, $timeout=2) {
     return Block\await( $promise, static::$reactLoop, $timeout );
@@ -47,8 +47,8 @@ final class ConversionTest extends TestCase {
   /**
    * @dataProvider fileProvider
    */
-  public function testGetFileHash($file) : void {
-    $res = $this->wait( Conversion::getFileHash($file) );
+  public function testCalculateFileHash($file) : void {
+    $res = $this->wait( Conversion::calculateFileHash($file) );
     $hash = sha1_file($file);
     $this->assertEquals($hash, $res );
   }
@@ -59,8 +59,8 @@ final class ConversionTest extends TestCase {
   /**
    * @dataProvider fileProvider
    */
-  public function testGetMime($file, $type) : void {
-    $res = $this->wait( Conversion::getMime($file) );
+  public function testCalculateMime($file, $type) : void {
+    $res = $this->wait( Conversion::calculateMime($file) );
     $this->assertEquals($type, substr($res, 0, 5));
   }
 
@@ -122,8 +122,8 @@ final class ConversionTest extends TestCase {
    * @depends testGet
    */
   public function testGetMissing() : void {
-    $row = $this->wait( Conversion::get('fail') );
-    $this->assertEmpty($row);
+    $this->expectException(Exception::class);
+    $this->wait( Conversion::get('fail') );
   }
 
 
@@ -179,9 +179,11 @@ final class ConversionTest extends TestCase {
     }
     $target = $file.'.webp';
     $out = $this->wait( Conversion::convertImage($file, $target) , 10);
-    $this->assertLessThan( filesize($file), filesize($out));
-    $this->assertNotEmpty( filesize($out) );
+    $outsize = filesize($out);
+    $filesize = filesize($file);
     unlink($out);
+    $this->assertLessThan( $filesize, $outsize);
+    $this->assertNotEmpty( $filesize );
   }
 
 
@@ -196,9 +198,9 @@ final class ConversionTest extends TestCase {
     }
     $target = $file.'.webp';
     $out = $this->wait( Conversion::convertVideo($file, $target) , 1800);
-    $this->assertLessThan( filesize($file), filesize($out));
-    $this->assertNotEmpty( filesize($out) );
+    $size = filesize($out);
     unlink($out);
+    $this->assertNotEmpty( $size );
   }
 
 

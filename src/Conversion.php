@@ -543,8 +543,8 @@ final class Conversion {
     static::$convertingImages++;
     $bin = dirname(__DIR__).'/bin/cwebp';
     $width = static::$converter->getMaxWidth();
-    $compression = static::$converter->getCompression();
-    $proc = new Process( $bin.' "'.$from.'" -mt -resize '.$width.' 0 -af -q '.$compression.' -o "'.$to.'"' );
+    $quality = static::$converter->getQuality();
+    $proc = new Process( $bin.' "'.$from.'" -mt -resize '.$width.' 0 -af -q '.$quality.' -o "'.$to.'"' );
     $proc->start(static::$loop);
     $proc->on('exit', function($exitCode, $termSignal) use ($defer, $to) {
       static::$convertingImages--;
@@ -578,6 +578,7 @@ final class Conversion {
       if($width) {
         $opts[] = 'w='.$width;
       }
+      $opts[] = 'h=0';
       /*
       if($height) {
         $opts[] = 'h='.$height;
@@ -588,10 +589,15 @@ final class Conversion {
     }
     $secs = static::$converter->getMaxSecs();
     $timeLimit = date('H:i:s', $secs);
-    $compression = static::$converter->getCompression();
-    $proc = new Process( $bin.' -y -i "'.$from.'" -vcodec libwebp -q '.$compression.' -preset default -loop 0 -an -vf '.$scale.' -t '.$timeLimit.' "'.$to.'"' );
+    $quality = static::$converter->getQuality();
+    $cmd = $bin.' -y -i "'.$from.'" -vcodec libwebp -q '.$quality.' -preset default -loop 0 -an -vf '.$scale.' -t '.$timeLimit.' "'.$to.'"';
+    $proc = new Process( $cmd );
     $proc->start(static::$loop);
-    $proc->on('exit', function($exitCode, $termSignal) use ($defer, $to) {
+    $buffer = '';
+    $proc->stdout->on('data', function($chunk) use (&$buffer) {
+      $buffer .= $chunk;
+    });
+    $proc->on('exit', function($exitCode, $termSignal) use ($defer, $to, &$buffer, $cmd) {
       static::$convertingVideos--;
       if(empty($exitCode)) {
         return $defer->resolve($to);

@@ -61,7 +61,7 @@ final class Server {
     $this->config['max_secs'] = ($max_secs = (int)getenv('WEBPIT_MAX_SECS')) ? $max_secs : MAX_SECS;
     $this->config['max_width'] = ($max_width = (int)getenv('WEBPIT_MAX_WIDTH')) ? $max_width : MAX_WIDTH;
     $this->config['max_height'] = ($max_height = (int)getenv('WEBPIT_MAX_HEIGHT')) ? $max_height : MAX_HEIGHT;
-    $this->config['compression'] = ($compression = (int)getenv('WEBPIT_COMPRESSION')) ? $compression : COMPRESSION;
+    $this->config['quality'] = ($quality = (int)getenv('WEBPIT_QUALITY')) ? $quality : QUALITY;
     $this->config['max_conversions'] = ($maxConv = (int)getenv('WEBPIT_MAX_CONVERSIONS')) ? $maxConv : MAX_CONVERSIONS;
 
     // Filesystem
@@ -491,7 +491,7 @@ final class Server {
               'max_files' => $this->config['max_files'],
                'max_secs' => $this->config['max_secs'],
               'max_width' => $this->config['max_width'],
-            'compression' => $this->config['compression'],
+                'quality' => $this->config['quality'],
          ],
     ];
     return $this->jsonResponse( 200, $res);

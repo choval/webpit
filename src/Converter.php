@@ -45,7 +45,7 @@ class Converter {
     $this->config['max_secs'] = $config['max_secs'] ?? MAX_SECS;
     $this->config['max_files'] = $config['max_files'] ?? MAX_FILES;
     $this->config['max_width'] = $config['max_width'] ?? MAX_WIDTH;
-    $this->config['compression'] = $config['compressino'] ?? COMPRESSION;
+    $this->config['quality'] = $config['quality'] ?? QUALITY;
     $this->config['max_conversions'] = $config['max_conversions'] ?? MAX_CONVERSIONS;
 
     $this->fs = Filesystem::create( $this->reactLoop );
@@ -196,11 +196,11 @@ class Converter {
 
   /**
    *
-   * Returns the compression factor
+   * Returns the quality
    *
    */
-  public function getCompression() : int {
-    return $this->config['compression'];
+  public function getQuality() : int {
+    return $this->config['quality'];
   }
 
 

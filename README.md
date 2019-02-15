@@ -131,7 +131,7 @@ HTTP1.1 GET /status
       "max_files": [WEBPIT_MAX_FILES],
       "max_secs": [WEBPIT_MAX_SECS],
       "max_width": [WEBPIT_MAX_WIDTH],
-      "compression": [WEBPIT_COMPRESSION]
+      "quality": [WEBPIT_QUALITY]
     }
   }
 }
@@ -170,7 +170,7 @@ WEBPIT_MAX_FILES = The max number of files to accept per request. Defaults to 10
 WEBPIT_CONCURRENCY = Max concurrent connections to handle. Defaults to 30.
 WEBPIT_MAX_SECS = The max number of seconds for animated WebP. Defaults to 6 seconds.
 WEBPIT_MAX_WIDTH = The max width for WebP. Defaults to 1080.
-WEBPIT_COMPRESSION = Compression for WebP. Defaults to 70.
+WEBPIT_QUALITY = Quality for WebP. Defaults to 70.
 WEBPIT_MAX_CONVERSIONS = Simultaneos conversions. Defaults to 1.
 ```
 
