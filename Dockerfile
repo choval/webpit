@@ -11,7 +11,7 @@ LABEL org.label-schema.name="webpit" \
   org.label-schema.vendor="PUBLITAR SRL" \
   org.label-schema.description="WebPit - Convert images and videos to WebP" \
   org.label-schema.vcs-url="https://github.com/choval/webpit" \
-  org.label-schema.license="Private"
+  org.label-schema.license="MIT"
 
 WORKDIR /app
 ADD . /app

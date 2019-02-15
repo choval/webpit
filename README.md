@@ -154,7 +154,6 @@ If the key is set, the `/query` will need the authorization header or the downlo
 The `/download` path doesn't need the authorization header, but the download_token is required.
 
 
-
 ## Configuration
 
 The following environment variables can be set. Pass them to the docker image.
@@ -173,6 +172,7 @@ WEBPIT_MAX_WIDTH = The max width for WebP. Defaults to 1080.
 WEBPIT_QUALITY = Quality for WebP. Defaults to 70.
 WEBPIT_MAX_CONVERSIONS = Simultaneos conversions. Defaults to 1.
 ```
+
 
 ## Docker
 
@@ -196,4 +196,8 @@ Run
 docker run --name webpit -p 8080:8080 -v `pwd`/files:/app/files -v `pwd`/data:/app/data webpit
 ```
 
+
+## License
+
+MIT
 
