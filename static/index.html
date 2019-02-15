@@ -153,10 +153,6 @@ function query(id) {
           $row.data('query', setTimeout(function() { query(id); }, 1000 ) );
           break;
       }
-    },
-    error: function() {
-      var $row = $('#'+id);
-      $row.data('query', setTimeout(function() { query(id); }, 1000 ) );
     }
   });
 }

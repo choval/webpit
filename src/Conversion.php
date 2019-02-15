@@ -324,7 +324,7 @@ final class Conversion {
         }
         $bytes += $written;
       });
-      $stream->on('end', function() use ($defer, $fh, &$bytes) {
+      $stream->on('close', function() use ($defer, $fh, &$bytes) {
         fclose($fh);
         $defer->resolve($bytes);
       });
@@ -370,15 +370,19 @@ final class Conversion {
       ->then(function($contents) use ($defer, $file) {
         // $file->close();
         if(empty($contents)) {
-          $defer->reject(new \Exception('NOT FOUND', 404));
+          $defer->reject(new \Exception('processing', 202));
           return;
         }
         $json = json_decode($contents, true);
+        if(empty($json)) {
+          $defer->reject(new \Exception('processing', 202));
+          return;
+        }
         $obj = new self($json);
         $defer->resolve( $obj );
       })
       ->otherwise(function($e) use ($defer) {
-        $defer->reject( new \Exception('NOT FOUND', 404) );
+        $defer->reject( new \Exception('not found', 404) );
       });
     return $defer->promise();
   }
@@ -419,11 +423,19 @@ final class Conversion {
    */
   public function save() {
     $defer = new Deferred;
-    static::$saving[ $this->id ] = $defer;
-    $row = $this->getArrayCopy();
-    $json = json_encode($row);
-    $file = static::dataPath($this->id);
-    $this->saveStream($json, $file)
+    if( empty( static::$saving[ $this->id ] )) {
+      $promise = new ResolvedPromise(false);
+    } else {
+      $promsise = static::$saving[$this->id];
+    }
+    $promise
+      ->then(function() use ($defer) {
+        static::$saving[ $this->id ] = $defer;
+        $row = $this->getArrayCopy();
+        $json = json_encode($row);
+        $file = static::dataPath($this->id);
+        return $this->saveStream($json, $file);
+      })
       ->then(function($saved) use ($defer) {
         $defer->resolve($this);
         unset(static::$saving[$this->id]);
@@ -530,8 +542,9 @@ final class Conversion {
     $defer = new Deferred;
     static::$convertingImages++;
     $bin = dirname(__DIR__).'/bin/cwebp';
-    // TODO: Options
-    $proc = new Process( $bin.' "'.$from.'" -o "'.$to.'"' );
+    $width = static::$converter->getMaxWidth();
+    $compression = static::$converter->getCompression();
+    $proc = new Process( $bin.' "'.$from.'" -mt -resize '.$width.' 0 -af -q '.$compression.' -o "'.$to.'"' );
     $proc->start(static::$loop);
     $proc->on('exit', function($exitCode, $termSignal) use ($defer, $to) {
       static::$convertingImages--;
@@ -555,8 +568,28 @@ final class Conversion {
     $defer = new Deferred;
     static::$convertingVideos++;
     $bin = dirname(__DIR__).'/bin/ffmpeg';
-    // TODO: Options
-    $proc = new Process( $bin.' -y -i "'.$from.'" -vcodec libwebp -q 60 -preset default -loop 0 -an -vf scale=w=1080:h=1080:force_original_aspect_ratio=decrease -t 00:00:06 "'.$to.'"' );
+    $width = static::$converter->getMaxWidth();
+    // $height = static::$converter->getMaxHeight();
+    $scale = '';
+    // if($width || $height) {
+    if($width) {
+      $scale = 'scale=';
+      $opts = [];
+      if($width) {
+        $opts[] = 'w='.$width;
+      }
+      /*
+      if($height) {
+        $opts[] = 'h='.$height;
+      }
+      */
+      $opts[] = 'force_original_aspect_ratio=decrease';
+      $scale .= implode(':',$opts);
+    }
+    $secs = static::$converter->getMaxSecs();
+    $timeLimit = date('H:i:s', $secs);
+    $compression = static::$converter->getCompression();
+    $proc = new Process( $bin.' -y -i "'.$from.'" -vcodec libwebp -q '.$compression.' -preset default -loop 0 -an -vf '.$scale.' -t '.$timeLimit.' "'.$to.'"' );
     $proc->start(static::$loop);
     $proc->on('exit', function($exitCode, $termSignal) use ($defer, $to) {
       static::$convertingVideos--;

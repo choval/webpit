@@ -44,6 +44,9 @@ class Converter {
     $this->config['max_size'] = $config['max_size'] ?? MAX_SIZE;
     $this->config['max_secs'] = $config['max_secs'] ?? MAX_SECS;
     $this->config['max_files'] = $config['max_files'] ?? MAX_FILES;
+    $this->config['max_width'] = $config['max_width'] ?? MAX_WIDTH;
+    $this->config['compression'] = $config['compressino'] ?? COMPRESSION;
+    $this->config['max_conversions'] = $config['max_conversions'] ?? MAX_CONVERSIONS;
 
     $this->fs = Filesystem::create( $this->reactLoop );
 
@@ -94,10 +97,13 @@ class Converter {
           $conv->delete();
         } else {
           $objStatus = $conv->getStatus();
-          $status[ $objStatus ]++;
           if($objStatus == 'queued') {
-            $conv->convert();
+            if($status['converting'] < $this->config['max_conversions']) {
+              $conv->convert();
+              $objStatus = 'converting';
+            }
           }
+          $status[ $objStatus ]++;
         }
       }
       $this->status = $status;
@@ -182,7 +188,43 @@ class Converter {
    *
    */
   public function getMaxSecs() : int {
-    return $this->conifg['max_secs'];
+    return $this->config['max_secs'];
+  }
+
+
+
+
+  /**
+   *
+   * Returns the compression factor
+   *
+   */
+  public function getCompression() : int {
+    return $this->config['compression'];
+  }
+
+
+
+
+  /**
+   *
+   * Returns the max width
+   *
+   */
+  public function getMaxWidth() : int {
+    return $this->config['max_width'];
+  }
+
+
+
+
+  /**
+   *
+   * Returns the max height
+   *
+   */
+  public function getMaxHeight() : int {
+    return $this->config['max_height'];
   }
 
 

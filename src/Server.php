@@ -56,8 +56,13 @@ final class Server {
     $this->config['concurrency'] = ($concurrency = (int)getenv('WEBPIT_CONCURRENCY')) ? $concurrency : 30;
     $this->config['ttl'] = ($ttl = (int)getenv('WEBPIT_TTL')) ? $ttl : TTL;
     $this->config['max_size'] = ($max_size = (int)getenv('WEBPIT_MAX_SIZE')) ? $max_size : MAX_SIZE;
-    $this->config['max_secs'] = ($max_secs = (int)getenv('WEBPIT_MAX_SECS')) ? $max_secs : MAX_SECS;
     $this->config['max_files'] = ($max_files = (int)getenv('WEBPIT_MAX_FILES')) ? $max_files : MAX_FILES;
+
+    $this->config['max_secs'] = ($max_secs = (int)getenv('WEBPIT_MAX_SECS')) ? $max_secs : MAX_SECS;
+    $this->config['max_width'] = ($max_width = (int)getenv('WEBPIT_MAX_WIDTH')) ? $max_width : MAX_WIDTH;
+    $this->config['max_height'] = ($max_height = (int)getenv('WEBPIT_MAX_HEIGHT')) ? $max_height : MAX_HEIGHT;
+    $this->config['compression'] = ($compression = (int)getenv('WEBPIT_COMPRESSION')) ? $compression : COMPRESSION;
+    $this->config['max_conversions'] = ($maxConv = (int)getenv('WEBPIT_MAX_CONVERSIONS')) ? $maxConv : MAX_CONVERSIONS;
 
     // Filesystem
     $this->fs = Filesystem::create( $this->reactLoop );
@@ -77,8 +82,10 @@ final class Server {
                 $method = $request->getMethod();
                 $path = $request->getUri()->getPath();
                 $status = $response->getStatusCode();
+                $server = $request->getServerParams();
+                $remoteAddress = $server['REMOTE_ADDR'];
                 $date = gmdate('Y-m-d H:i:s');
-                echo "[$date] $status - $method $path\n";
+                echo "$remoteAddress [$date] $status - $method $path\n";
                 return resolve($response);
               });
           },
@@ -121,7 +128,7 @@ final class Server {
    */
   public function start() {
     $this->server->listen($this->socket);
-    // TODO: Echo
+    echo "LISTENING ON {$this->config['address']}:{$this->config['port']}\n";
   }
 
 
@@ -137,7 +144,14 @@ final class Server {
     try {
       switch($path) {
         case '/':
-          $path = '/index.html';
+          if(empty($this->config['disable_index'])) {
+            $path = '/index.html';
+            $file = basename($path);
+          } else {
+            $file = 'noindex.html';
+          }
+          return $this->rawFile( dirname(__DIR__).'/static/'.$file );
+          return;
         case '/favicon.ico':
         case '/robots.txt':
           $file = basename($path);
@@ -214,6 +228,11 @@ final class Server {
       && !isset($headers['Content-type']) ) {
       $headers['Content-Type'] = static::mimeByPath($file);
     }
+    if(  !isset($headers['Content-Disposition'])
+      && !isset($headers['content-disposition'])
+      && !isset($headers['Content-disposition']) ) {
+      $headers['Content-Disposition'] = 'inline; filename="'.basename($file).'"';
+    }
     $this->fs->file($file)->exists()
       ->then(
         function() use ($file) {
@@ -256,14 +275,27 @@ final class Server {
     if(!$contentType) {
       return new ResolvedPromise( $this->jsonResponse( 400, ['error'=>'bad request'] ) );
     }
+
+    // Disable convert if less than 1GB remaining
+    // TODO: Move this potions omewhere else
+    if($this->converter->getDiskFreeSpace() < (1024*1024)) {
+      return new ResolvedPromise( $this->jsonResponse( 503, ['error'=>'insufficient disk space']) );
+    }
+
     $defer = new Deferred;
     // Retrieves files from the request
     $files = [];
     if($contentType == 'application/json') {
       $body = $req->getParsedBody();
+      $i = $this->config['max_files'];
       foreach($body['request'] as $bodyreq) {
+        if(!$i) {
+          break;
+        }
         if(isset($bodyreq['content'])) {
+          // TODO: Pipe this?
           $files[] = base64_decode($bodyreq['content']);
+          $i--;
         }
       }
     }
@@ -442,8 +474,8 @@ final class Server {
     $res['conversions'] = [
        'completed' => $status['completed'] ?? 0,
       'converting' => [
-                    'images' => Conversion::getConvertingImages(),
-                    'videos' => Conversion::getConvertingVideos(),
+                     'images' => Conversion::getConvertingImages(),
+                     'videos' => Conversion::getConvertingVideos(),
                       ],
           'failed' => $status['failed'] ?? 0,
          'pending' => $status['pending'] ?? 0,
@@ -453,6 +485,14 @@ final class Server {
     $res['server'] = [
         'version' => static::$version,
            'disk' => $this->converter->getDiskFreeSpace(),
+         'config' => [
+                    'ttl' => $this->config['ttl'],
+               'max_size' => $this->config['max_size'],
+              'max_files' => $this->config['max_files'],
+               'max_secs' => $this->config['max_secs'],
+              'max_width' => $this->config['max_width'],
+            'compression' => $this->config['compression'],
+         ],
     ];
     return $this->jsonResponse( 200, $res);
   }

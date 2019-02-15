@@ -86,16 +86,19 @@ Once the conversion is completed, the result file can be downloaded using the `d
 ```
 HTTP1.1 GET /download?id=[UID]&token=[DOWNLOAD_TOKEN]
 
+ETag: [OUTPUT_HASH]
+Last-Modified: [CONVERSION_COMPLETED_DATE]
+Expires: [AFTER_THIS_DATE_FILE_WILL_BE_DELETED]
+```
+
+```
+TO BE IMPLEMENTED:
+-----------------------------------------------
 Ranges is supported, the server responds with:
 Accept-Ranges: bytes
 
 Allowing the client to use:
 Range: bytes=0-1200
-
-ETag: [OUTPUT_HASH]
-Last-Modified: [CONVERSION_COMPLETED_DATE]
-Expires: [AFTER_THIS_DATE_FILE_WILL_BE_DELETED]
-
 ```
 
 [Range requests reference](https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests)
@@ -121,7 +124,15 @@ HTTP1.1 GET /status
   },
   "server": {
     "version": [VERSION],
-    "disk": [REMAINING_DISK_BYTES]
+    "disk": [REMAINING_DISK_BYTES],
+    "config": {
+      "ttl": [WEBPIT_TTL],
+      "max_size": [WEBPIT_MAX_SIZE],
+      "max_files": [WEBPIT_MAX_FILES],
+      "max_secs": [WEBPIT_MAX_SECS],
+      "max_width": [WEBPIT_MAX_WIDTH],
+      "compression": [WEBPIT_COMPRESSION]
+    }
   }
 }
 
@@ -135,7 +146,7 @@ The API can be configured with a key for `/convert` and `/status`.
 Set the environment variable WEBPIT_AUTH with your desired key, and pass this key in the `Authorization` header like this:
 
 ```
-Authorization: Basic [BASE64_KEY]
+Authorization: Basic [BASE64_AUTH_KEY]
 ```
 
 If the key is set, the `/query` will need the authorization header or the download_token as a query param `token`.
@@ -155,9 +166,12 @@ WEBPIT_DISABLE_INDEX = Disables the index form page for uploading a file convers
 WEBPIT_AUTH = A simple phrase required to authenticate all calls. Defaults to public.
 WEBPIT_TTL = Seconds to keep the converted file after completion, in seconds. Defaults to 172800 (48 hours).
 WEBPIT_MAX_SIZE = The max accepted file size in MB. Defaults to 20.
-WEBPIT_MAX_SECS = The max number of seconds for videos. Defaults to 6 seconds.
 WEBPIT_MAX_FILES = The max number of files to accept per request. Defaults to 10.
 WEBPIT_CONCURRENCY = Max concurrent connections to handle. Defaults to 30.
+WEBPIT_MAX_SECS = The max number of seconds for animated WebP. Defaults to 6 seconds.
+WEBPIT_MAX_WIDTH = The max width for WebP. Defaults to 1080.
+WEBPIT_COMPRESSION = Compression for WebP. Defaults to 70.
+WEBPIT_MAX_CONVERSIONS = Simultaneos conversions. Defaults to 1.
 ```
 
 
