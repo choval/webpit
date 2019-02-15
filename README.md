@@ -174,4 +174,26 @@ WEBPIT_QUALITY = Quality for WebP. Defaults to 70.
 WEBPIT_MAX_CONVERSIONS = Simultaneos conversions. Defaults to 1.
 ```
 
+## Docker
+
+Requires:
+
+```
+* php
+* composer
+* docker
+```
+
+Build
+
+```
+./build
+```
+
+Run
+
+```
+docker run --name webpit -p 8080:8080 -v `pwd`/files:/app/files -v `pwd`/data:/app/data webpit
+```
+
 

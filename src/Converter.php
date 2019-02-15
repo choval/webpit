@@ -97,6 +97,7 @@ class Converter {
           $conv->delete();
         } else {
           $objStatus = $conv->getStatus();
+          // TODO: Remove stuck converting ones
           if($objStatus == 'queued') {
             if($status['converting'] < $this->config['max_conversions']) {
               $conv->convert();
