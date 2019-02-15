@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "8469ac43a65241c2167de0ffae507875",
+    "content-hash": "979f20fad7ddb3c878dc68e99dc07a97",
     "packages": [
         {
             "name": "cakephp/core",
@@ -749,16 +749,16 @@
         },
         {
             "name": "react/filesystem",
-            "version": "v0.1.2",
+            "version": "dev-master",
             "source": {
                 "type": "git",
                 "url": "https://github.com/reactphp/filesystem.git",
-                "reference": "766cdef9ba806367114f0c5ba36ea2a6eec8ccd2"
+                "reference": "36f25cac21945d910ce782fdd1ae653d17ce742c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/reactphp/filesystem/zipball/766cdef9ba806367114f0c5ba36ea2a6eec8ccd2",
-                "reference": "766cdef9ba806367114f0c5ba36ea2a6eec8ccd2",
+                "url": "https://api.github.com/repos/reactphp/filesystem/zipball/36f25cac21945d910ce782fdd1ae653d17ce742c",
+                "reference": "36f25cac21945d910ce782fdd1ae653d17ce742c",
                 "shasum": ""
             },
             "require": {
@@ -786,7 +786,11 @@
                     "src/functions_include.php"
                 ]
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "psr-4": {
+                    "React\\Tests\\Filesystem\\": "tests/"
+                }
+            },
             "license": [
                 "MIT"
             ],
@@ -802,7 +806,11 @@
                 "eio",
                 "filesystem"
             ],
-            "time": "2018-10-22T12:10:29+00:00"
+            "support": {
+                "source": "https://github.com/reactphp/filesystem/tree/master",
+                "issues": "https://github.com/reactphp/filesystem/issues"
+            },
+            "time": "2019-02-02T16:02:20+00:00"
         },
         {
             "name": "react/http",
@@ -3057,7 +3065,8 @@
     "aliases": [],
     "minimum-stability": "stable",
     "stability-flags": {
-        "clue/reactphp-sqlite": 20
+        "clue/reactphp-sqlite": 20,
+        "react/filesystem": 20
     },
     "prefer-stable": false,
     "prefer-lowest": false,

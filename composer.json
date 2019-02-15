@@ -12,6 +12,10 @@
       {
         "type": "vcs",
         "url": "https://github.com/clue/reactphp-sqlite"
+      },
+      {
+        "type": "vcs",
+        "url": "https://github.com/reactphp/filesystem"
       }
     ],
     "autoload": {
@@ -25,7 +29,7 @@
     "require": {
         "clue/reactphp-sqlite": "dev-master",
         "react/http": "^0.8.4",
-        "react/filesystem": "^0.1.1",
+        "react/filesystem": "dev-master",
         "wyrihaximus/react-http-middleware-with-headers": "^1.0",
         "clue/block-react": "^1.3"
     },

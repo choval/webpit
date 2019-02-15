@@ -19,7 +19,7 @@ use React\Http\Response;
 use React\Stream\ThroughStream;
 use React\Promise\Deferred;
 use React\Promise;
-use React\Promise\FulfilledPromise;
+use React\Promise\FulfilledPromise as ResolvedPromise;
 use function React\Promise\resolve;
 
 use Exception;
@@ -33,7 +33,7 @@ final class Server {
   private $fs;
   private $root;
   private $database;
-  private $conversion;
+  private $converter;
 
 
   /**
@@ -51,14 +51,14 @@ final class Server {
     $this->config['disable_index'] = empty(getenv('WEBPIT_DISABLE_INDEX')) ? false : true;
     $this->config['auth'] = getenv('WEBPIT_AUTH');
     $this->config['concurrency'] = ($concurrency = (int)getenv('WEBPIT_CONCURRENCY')) ? $concurrency : 30;
-    $this->config['ttl'] = ($ttl = (int)getenv('WEBPIT_TTL')) ? $ttl : Webpit\TTL;
-    $this->config['max_size'] = ($max_size = (int)getenv('WEBPIT_MAX_SIZE')) ? $max_size : Webpit\MAX_SIZE;
-    $this->config['max_secs'] = ($max_secs = (int)getenv('WEBPIT_MAX_SECS')) ? $max_secs : Webpit\MAX_SECS;
-    $this->config['max_files'] = ($max_files = (int)getenv('WEBPIT_MAX_FILES')) ? $max_files : Webpit\MAX_FILES;
+    $this->config['ttl'] = ($ttl = (int)getenv('WEBPIT_TTL')) ? $ttl : TTL;
+    $this->config['max_size'] = ($max_size = (int)getenv('WEBPIT_MAX_SIZE')) ? $max_size : MAX_SIZE;
+    $this->config['max_secs'] = ($max_secs = (int)getenv('WEBPIT_MAX_SECS')) ? $max_secs : MAX_SECS;
+    $this->config['max_files'] = ($max_files = (int)getenv('WEBPIT_MAX_FILES')) ? $max_files : MAX_FILES;
 
     // Filesystem
     $this->fs = Filesystem::create( $this->reactLoop );
-    $this->conversion = new Conversion($loop, $this->config);
+    $this->converter = new Converter($loop, $this->config);
 
     // Socket
     $this->socket = new SocketServer( $this->config['address'].':'.$this->config['port'] , $this->reactLoop );
@@ -66,7 +66,7 @@ final class Server {
     // Server
     $this->server = new StreamingServer([
           new WithHeadersMiddleware([
-            'X-Powered-By' => 'WebPit/0.1',
+            'X-Powered-By' => 'WebPit/0.1 (https://publitar.com/p/webpit)',
           ]),
           function (ServerRequestInterface $request, callable $next) {
             return resolve($next($request))
@@ -74,7 +74,7 @@ final class Server {
                 $method = $request->getMethod();
                 $path = $request->getUri()->getPath();
                 $status = $response->getStatusCode();
-                $date = date('Y-m-d H:i:s');
+                $date = gmdate('Y-m-d H:i:s');
                 echo "[$date] $status - $method $path\n";
                 return resolve($response);
               });
@@ -118,7 +118,6 @@ final class Server {
    */
   public function start() {
     $this->server->listen($this->socket);
-    $this->conversion->initDatabase();  // TODO: This is a promise!
     // TODO: Echo
   }
 
@@ -132,26 +131,69 @@ final class Server {
    */
   public function handler(ServerRequestInterface $request) {
     $path = $request->getUri()->getPath();
-    switch($path) {
-      case '/':
-        $path = '/index.html';
-      case '/favicon.ico':
-      case '/robots.txt':
-        $file = basename($path);
-        return $this->rawFile( dirname(__DIR__).'/static/'.$file );
-      case '/convert':
-        $method = $request->getMethod();
-        if($method == 'POST') {
-          return $this->handleConvert($request);
-        }
-      case '/download':
-        return $this->handleDownload($request);
-      case '/status':
-        return $this->handleStatus($request);
+    try {
+      switch($path) {
+        case '/':
+          $path = '/index.html';
+        case '/favicon.ico':
+        case '/robots.txt':
+          $file = basename($path);
+          return $this->rawFile( dirname(__DIR__).'/static/'.$file );
+        case '/README.md':
+          return $this->rawFile( dirname(__DIR__).'/README.md' );
+        case '/convert':
+          $method = $request->getMethod();
+          if($method == 'POST') {
+            return $this->handleConvert($request);
+          }
+        case '/download':
+          return $this->handleDownload($request);
+        case '/status':
+          return $this->handleStatus($request);
+        case '/query':
+          return $this->handleQuery($request);
+      }
+    } catch(\Exception $e) {
+      return $this->jsonResponse($e->getCode(), $e->getMessage());
     }
+    return $this->jsonResponse(404, ['error'=>'not found']);
+  }
 
-    $file = 'not_found.html';
-    return $this->rawFile( dirname(__DIR__).'/static/'.$file, [], 404);
+
+
+
+  /**
+   *
+   * Calculates the mime using the file name
+   *
+   */
+  static public function mimeByPath(string $file) : string {
+    if(strpos($file,'/') === false && strpos($file,'.') === false) {
+      $ext = $file;
+    } else {
+      $ext = pathinfo( $file, PATHINFO_EXTENSION);
+    }
+    $ext = strtolower($ext);
+    $mime = 'application/octet-stream';
+    $mimes = [
+      'md' => 'text/plain',
+      'css' => 'text/css',
+      'gif' => 'image/gif',
+      'html' => 'text/html',
+      'htm' => 'text/htm',
+      'ico' => 'image/x-icon',
+      'jpeg' => 'image/jpeg',
+      'jpg' => 'image/jpeg',
+      'jpe' => 'image/jpeg',
+      'js' => 'application/javascript',
+      'json' => 'application/json',
+      'pdf' => 'application/pdf',
+      'png' => 'image/png',
+      'svg' => 'image/svg+xml',
+      'xls' => 'application/vnd.ms-excel',
+      'webp' => 'image/webp',
+    ];
+    return $mimes[$ext] ?? $mime;
   }
 
 
@@ -197,35 +239,83 @@ final class Server {
 
   /**
    *
-   * Calculates the mime using the file name
+   * Handles conversion
    *
    */
-  static public function mimeByPath(string $file) : string {
-    if(strpos($file,'/') === false && strpos($file,'.') === false) {
-      $ext = $file;
-    } else {
-      $ext = pathinfo( $file, PATHINFO_EXTENSION);
+  public function handleConvert(ServerRequestInterface $req) {
+    $contentType = $req->getHeaderLine('Content-Type') ?? false;
+    if(!$contentType) {
+      return new ResolvedPromise( $this->jsonResponse( 400, ['error'=>'bad request'] ) );
     }
-    $ext = strtolower($ext);
-    $mime = 'application/octet-stream';
-    $mimes = [
-      'css' => 'text/css',
-      'gif' => 'image/gif',
-      'html' => 'text/html',
-      'htm' => 'text/htm',
-      'ico' => 'image/x-icon',
-      'jpeg' => 'image/jpeg',
-      'jpg' => 'image/jpeg',
-      'jpe' => 'image/jpeg',
-      'js' => 'application/javascript',
-      'json' => 'application/json',
-      'pdf' => 'application/pdf',
-      'png' => 'image/png',
-      'svg' => 'image/svg+xml',
-      'xls' => 'application/vnd.ms-excel',
-      'webp' => 'image/webp',
-    ];
-    return $mimes[$ext] ?? $mime;
+    $defer = new Deferred;
+    // Retrieves files from the request
+    $files = [];
+    if($contentType == 'application/json') {
+      $body = $req->getParsedBody();
+      foreach($body['request'] as $bodyreq) {
+        if(isset($bodyreq['content'])) {
+          $files[] = base64_decode($bodyreq['content']);
+        }
+      }
+    }
+    else if(strpos($contentType, 'multipart/form-data') !== false) {
+      $uploads = $req->getUploadedFiles();
+      $uploadFiles = $uploads['files'] ?? [];
+      if(isset($uploads['file'])) {
+        $uploadFiles[] = $uploads['file'];
+      }
+      foreach($uploadFiles as $uploadFile) {
+        if($uploadFile instanceof UploadedFileInterface) {
+          if($uploadFile->getError() === \UPLOAD_ERR_OK) {
+            $files[] = $uploadFile->getStream();
+          }
+        }
+      }
+    }
+
+    // User agent and remote address
+    $userAgent = $req->getHeaderLine('User-Agent');
+    if(is_array($userAgent)) {
+      $userAgent = current($userAgent);
+    }
+    $server = $req->getServerParams();
+    $remoteAddress = $server['REMOTE_ADDR'];
+
+    // Handle each of the files
+    $promises = [];
+    foreach($files as $file) {
+      $row = [];
+      $row['remote_address'] = $remoteAddress;
+      $row['user_agent'] = $userAgent;
+
+      $obj = new Conversion($row);
+      $promises[] = $obj->setInput($file);
+    }
+    if(empty($promises)) {
+      return $defer->resolve( $this->jsonResponse( 400, ['error'=>'bad request']) );
+    }
+    Promise\all($promises)
+      ->then(function($objs) use ($defer) {
+        $res = [];
+        $res['conversions'] = [];
+
+        foreach($objs as $obj) {
+          $tmp = [];
+          $tmp['created'] = gmdate('c', $obj->getCreated() );
+          $tmp['download_token'] = $obj->getDownloadToken();
+          $tmp['id'] = $obj->getId();
+          $tmp['input_hash'] = $obj->getInputHash();
+          $tmp['input_source'] = $obj->getInputSource();
+          $tmp['status'] = $obj->getStatus();
+
+          $res['conversions'][] = $tmp;
+        }
+        $defer->resolve( $this->jsonResponse( 201, $res ) );
+      })
+      ->otherwise(function($e) use ($defer) {
+        $defer->reject($e);
+      });
+    return $defer->promise();
   }
 
 
@@ -233,69 +323,42 @@ final class Server {
 
   /**
    *
-   * Handles conversion
+   * Handles query
    *
    */
-  public function handleConvert(ServerRequestInterface $req) {
-    $defer = new Deferred;
-    $headers = $req->getHeaders();
-    $contentType = $headers['Content-Type'] ?? $headers['Content-type'] ?? $headers['content-type'] ?? false;
-    if($contentType) {
-      $files = [];
-      if($contentType == 'application/json') {
-        $body = $req->getParsedBody();
-        // TODO
-      }
-      else if(strpos($contentType, 'multipart/form-data') !== false) {
-        $uploads = $request->getUploadedFiles();
-        $uploadFiles = $uploads['files'] ?? [];
-        if(isset($uploads['file'])) {
-          $uploadFiles[] = $uploads['file'];
-        }
-        foreach($uploadFiles as $uploadFile) {
-          if($uploadFile instanceof UploadedFileInterface) {
-            if($uploadFile->getError() === \UPLOAD_ERR_OK) {
-              $files[] = $uploadFile;
-            }
-          }
-        }
-      }
-      // PROCESS EACH FILE
-      $server = $req->getServerParams();
-      $userAgent = $req->getHeaderLine('User-Agent');
-      if(is_array($userAgent)) {
-        $userAgent = current($userAgent);
-      }
-
-      $promises = [];
-      foreach($files as $file) {
-        $row = [];
-        $row['remote_address'] = $server['REMOTE_ADDR'];
-        $row['user_agent'] = $userAgent;
-
-        if($file instanceof UploadedFileInterface) {
-          $stream = $file->moveTo($row['input_path']);
-        } else {
-          // TODO
-        }
-        $promises[] = $this->conversion->create($stream, $row);
-      }
-      Promise\all($promises)
-        ->then(function($rows) use ($defer) {
-          $res = [];
-          $res['conversions'] = [];
-          foreach($rows as $row) {
-            $tmp = [];
-            $tmp['id'] = $row['id'];
-            $tmp['source'] = $row['source'];
-            $tmp['hash'] = 
-          }
-          $defer->resolve( new Response(200, ['Content-Type'=>'application/json'], json_encode($res) ) );
-        })
-        ->otherwise(function($e) use ($defer) {
-          $defer->reject($e);
-        });
+  public function handleQuery(ServerRequestInterface $req) {
+    $id = $req->getQueryParams()['id'] ?? false;
+    if(empty($id)) {
+      return RejectedPromise( $this->jsonResponse( 400, ['error'=>'bad request']) );
     }
+    $defer = new Deferred;
+    Conversion::get($id)
+      ->then(function($obj) use ($defer) {
+        $tmp = [];
+        $tmp['id'] = $obj->getId();
+        $tmp['input_hash'] = $obj->getInputHash();
+        $tmp['input_source'] = $obj->getInputSource();
+        $tmp['created'] = gmdate('c', $obj->getCreated() );
+        $tmp['status'] = $obj->getStatus();
+        switch($tmp['status']) {
+          case 'queued':
+          case 'converting':
+          case 'pending':
+            $code = 202;
+            break;
+          case 'completed':
+            $code = 200;
+            break;
+          case 'failed':
+            $code = 204;
+            $tmp['error'] = $obj->getError();
+            break;
+        }
+        $defer->resolve( $this->jsonResponse( $code, $tmp) );
+      })
+      ->otherwise(function($e) use ($defer) {
+        $defer->resolve( $this->jsonResponse( $e->getCode(), $e->getMessage() ) );
+      });
     return $defer->promise();
   }
 
@@ -308,7 +371,44 @@ final class Server {
    *
    */
   public function handleDownload(ServerRequestInterface $req) {
-
+    $get = $req->getQueryParams();
+    $id = $get['id'] ?? false;
+    $token = $get['token'] ?? $get['download_token'] ?? false;
+    if(empty($id) || empty($token)) {
+      return ResolvedPromise( $this->jsonResponse( 400, ['error'=>'bad request'] ) );
+    }
+    $defer = new Deferred;
+    Conversion::get($id)
+      ->then(function($obj) use ($token, $defer) {
+        if($obj->getDownloadToken() != $token) {
+          return $defer->resolve( $this->jsonResponse(401, ['error'=>'forbidden'] ) );
+        }
+        $status = $obj->getStatus();
+        switch($status) {
+          case 'converting':
+          case 'queued':
+            return $this->jsonResponse(201, $status);
+            break;
+          case 'failed':
+            return $this->jsonResponse(500, $status);
+            break;
+        }
+        $headers = [
+          'Content-Disposition' => 'inline; name="'.$obj->getId().'"; filename="'.basename($obj->getOutputPath()).'"',
+               'Content-Length' => $obj->getOutputSize(),
+                'Last-Modified' => gmdate('r', $obj->getChecked()),
+                      'Expires' => gmdate('r', $obj->getExpires()),
+                         'ETag' => $obj->getOutputHash(),
+        ];
+        return $this->rawFile( $obj->getOutputPath(), $headers );
+      })
+      ->then(function($res) use ($defer) {
+        $defer->resolve($res);
+      })
+      ->otherwise(function($e) use ($defer) {
+        $defer->reject($e);
+      });
+    return $defer->promise();
   }
 
 
@@ -323,6 +423,21 @@ final class Server {
 
   }
 
+
+
+
+  /**
+   *
+   * Generates a response for return
+   *
+   */
+  public function jsonResponse(int $code, $msg) : Response {
+    return new Response(
+      $code,
+      ['Content-Type'=>'application/json'],
+      json_encode($msg)
+    );
+  }
 
 
 

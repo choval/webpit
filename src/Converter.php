@@ -10,7 +10,6 @@ use Clue\React\Block;
 use React\Promise\Deferred;
 use React\Promise;
 use React\Promise\FulfilledPromise as ResolvedPromise;
-use React\Promise\RejectedPromise;
 
 
 
@@ -24,8 +23,13 @@ class Converter {
   private $filesRoot;
   private $dataRoot;
 
-  private $convertingImages = 0;
-  private $convertingVideos = 0;
+  private $conversions = [];
+  private $status = [
+    'queued',
+    'converting',
+    'completed',
+    'failed',
+  ];
 
 
   /**
@@ -51,6 +55,71 @@ class Converter {
     Conversion::setLoop( $this->reactLoop );
     Conversion::setConverter( $this );
 
+
+    // Scans existing conversions
+    $this->reactLoop->addTimer(2, function() {
+      $files = glob('data/*.json');
+      $promises = [];
+
+      foreach($files as $file) {
+        $id = str_replace('.json','',basename($file));
+        if(!isset($this->conversions[$id])) {
+          Conversion::get($id);
+        }
+      }
+    });
+
+
+
+    // Regularly loop through active conversions
+    $this->reactLoop->addPeriodicTimer(0.5, function() {
+      $this->status['pending'] = 
+      $this->status['queued'] =
+      $this->status['converting'] = 
+      $this->status['completed'] =
+      $this->status['failed'] = 0;
+      foreach($this->conversions as $conv) {
+        if($conv->isExpired()) {
+          $conv->delete();
+        } else {
+          $status = $conv->getStatus();
+          $this->status[$status]++;
+          if($status == 'queued') {
+            $conv->convert();
+          }
+        }
+      }
+    });
+
+
+  }
+
+
+
+
+  /**
+   *
+   * Adds a conversion
+   *
+   */
+  public function addConversion(Conversion $obj) {
+    $id = $obj->getId();
+    $this->conversions[$id] = $obj;
+    return $this;
+  }
+
+
+
+
+  /**
+   *
+   * Deletes a conversion
+   *
+   */
+  public function delConversion(Conversion $obj) {
+    $id = $obj->getId();
+    unset($this->conversions[$id]);
+    return $this;
   }
 
 

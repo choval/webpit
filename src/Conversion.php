@@ -11,6 +11,8 @@ use React\Promise\RejectedPromise;
 
 use React\Stream\WritableStreamInterface;
 use React\Stream\ReadableStreamInterface;
+use Psr\Http\Message\UploadedFileInterface;
+use RingCentral\Psr7\Stream as Psr7Stream;
 
 use React\ChildProcess\Process;
 use React\Promise\Stream;
@@ -27,6 +29,7 @@ final class Conversion {
   static $convertingImages = 0;
   static $convertingVideos = 0;
 
+  static $saving = [];
 
   private $id;
   private $input_path;
@@ -45,7 +48,9 @@ final class Conversion {
   private $output_path;
   private $output_date;
   private $output_hash;
-  private $output_token;
+  private $output_size;
+  private $download_token;
+  private $expires;
 
   static private $columns = [
     'id',
@@ -64,8 +69,10 @@ final class Conversion {
     'output_options',
     'output_path',
     'output_date',
-    'output_token',
     'output_hash',
+    'output_size',
+    'download_token',
+    'expires',
   ];
 
 
@@ -83,20 +90,27 @@ final class Conversion {
     if(empty(static::$loop)) {
       throw new \Exception('MISSING REACT LOOP');
     }
+    if(empty(static::$converter)) {
+      throw new \Exception('MISSING CONVERTER');
+    }
     if(empty($row['id'])) {
       $row['id'] = static::generateId();
     }
     if(empty($row['created'])) {
-      $row['created'] = gmdate('c');
+      $row['created'] = time();
     }
     if(empty($row['status'])) {
       $row['status'] = 'pending';
+    }
+    if(empty($row['download_token'])) {
+      $row['download_token'] = static::generateToken();
     }
     foreach($row as $k=>$v) {
       if(in_array($k, static::$columns)) {
         $this->{$k} = $v;
       }
     }
+    static::$converter->addConversion($this);
   }
 
 
@@ -143,7 +157,7 @@ final class Conversion {
 
   /**
    *
-   *
+   * Generates a token
    *
    */
   public static function generateToken() {
@@ -197,24 +211,13 @@ final class Conversion {
   public function setInput($input) {
     $defer = new Deferred;
     $inputPath = $this->getInputPath();
-    if($input instanceof ReadableStreamInterface) {
+    if($input instanceof UploadedFileInterface) {
+      $input = $input->getStream();
+    }
+    $promise = false;
+    if($input instanceof ReadableStreamInterface || $input instanceof Psr7Stream) {
       $this->input_source = 'STREAM';
-      static::saveStream($input, $inputPath)
-        ->then(function($size) use ($defer, $inputPath) {
-          $this->input_size = $size;
-          $this->input_path = $inputPath;
-          $this->status = 'queued';
-          $this->save()
-            ->then(function($saved) use ($defer, $size) {
-              $defer->resolve( $size );
-            })
-            ->otherwise(function($e) use ($defer) {
-              $defer->reject($e);
-            });
-        })
-        ->otherwise(function($e) use ($defer) {
-          $defer->reject($e);
-        });
+      $promise = static::saveStream($input, $inputPath);
     }
     else if(is_string($input)) {
       // URI, download
@@ -225,26 +228,34 @@ final class Conversion {
       // Full file
       else {
         $this->input_source = 'CONTENT';
-        static::saveStream($input, $inputPath)
-          ->then(function($size) use ($defer, $inputPath) {
-            $this->input_size = $size;
-            $this->input_path = $inputPath;
-            $this->status = 'queued';
-            $this->save()
-              ->then(function($saved) use ($defer, $size) {
-                $defer->resolve( $size );
-              })
-              ->otherwise(function($e) use ($defer) {
-                $defer->reject($e);
-              });
-          })
-          ->otherwise(function($e) use ($defer) {
-            $defer->reject($e);
-          });
+        $promise = static::saveStream($input, $inputPath);
       }
     }
     else {
       $defer->reject( new \Exception('UNKNOWN INPUT') );
+    }
+    if($promise) {
+      $promise
+        ->then(function($size) use ($inputPath) {
+          $this->input_size = $size;
+          $this->input_path = $inputPath;
+          return static::calculateFileHash( $inputPath );
+        })
+        ->then(function($hash) {
+          $this->input_hash = $hash;
+          return $this->calculateMime( $this->getInputPath() );
+        })
+        ->then(function($mime) {
+          $this->input_mime = $mime;
+          $this->status = 'queued';
+          return $this->save();
+        })
+        ->then(function($saved) use ($defer) {
+          $defer->resolve( $this );
+        })
+        ->otherwise(function($e) use ($defer) {
+          $defer->reject($e);
+        });
     }
     return $defer->promise();
   }
@@ -304,32 +315,6 @@ final class Conversion {
 
 
 
-  /**
-   *
-   * Gets the input path
-   *
-   */
-  public function getInputPath() : string {
-    if(empty($this->input_path)) {
-      $this->input_path = 'files/'.$this->id;
-    }
-    return $this->input_path;
-  }
-
-
-
-  /**
-   *
-   * Gets the output path
-   *
-   */
-  public function getOutputPath() : string {
-    if(empty($this->output_path)) {
-      $this->output_path = 'files/'.$this->id.'.webp';
-    }
-    return $this->output_path;
-  }
-
 
 
 
@@ -339,15 +324,29 @@ final class Conversion {
    *
    */
   static function get(string $id) {
+    if(!empty(static::$saving[$id])) {
+      return static::$saving[$id];
+    }
     $defer = new Deferred;
     $path = static::dataPath($id);
-    static::$fs->file($path)->exists()
-      ->then(function() use ($path) {
-        return static::$fs->file($path)->getContents();
-      })
+    /*
+    static::runCmd('test -f "'.$path.'" && cat "'.$path.'"')
       ->then(function($contents) use ($defer) {
+        if(empty($
+      })
+      ->otherwise(function($e) use ($defer) {
+        $defer->reject( new \Exception('NOT FOUND', 404) );
+      });
+      */
+    $file = static::$fs->file($path);
+    $file->exists()
+      ->then(function() use ($path, $file) {
+        return $file->getContents();
+      })
+      ->then(function($contents) use ($defer, $file) {
+        // $file->close();
         if(empty($contents)) {
-          $defer->reject(new \Exception('NOT FOUND'));
+          $defer->reject(new \Exception('NOT FOUND', 404));
           return;
         }
         $json = json_decode($contents, true);
@@ -355,8 +354,7 @@ final class Conversion {
         $defer->resolve( $obj );
       })
       ->otherwise(function($e) use ($defer) {
-        $defer->resolve(false);
-//        $defer->reject($e);
+        $defer->reject( new \Exception('NOT FOUND', 404) );
       });
     return $defer->promise();
   }
@@ -379,6 +377,7 @@ final class Conversion {
     Promise\all($promises)
       ->then(function($res) use ($defer) {
         $defer->resolve($res);
+        static::$converter->delConversion($this);
       })
       ->otherwise(function($e) use ($defer) {
         $defer->reject($e);
@@ -396,12 +395,14 @@ final class Conversion {
    */
   public function save() {
     $defer = new Deferred;
+    static::$saving[ $this->id ] = $defer;
     $row = $this->getArrayCopy();
     $json = json_encode($row);
     $file = static::dataPath($this->id);
     $this->saveStream($json, $file)
       ->then(function($saved) use ($defer) {
-        $defer->resolve($saved);
+        $defer->resolve($this);
+        unset(static::$saving[$this->id]);
       })
       ->otherwise(function($e) use ($defer) {
         $defer->reject($e);
@@ -429,12 +430,13 @@ final class Conversion {
 
 
 
+
   /**
    *
    * Gets the hash of the file
    *
    */
-  public static function getFileHash(string $file) {
+  public static function calculateFileHash(string $file) {
     $defer = new Deferred;
     static::runCmd('shasum "'.$file.'"')
       ->then(function($res) use ($defer) {
@@ -453,54 +455,15 @@ final class Conversion {
 
   /**
    *
-   * Gets the input hash
+   * Calculates the file size
    *
    */
-  public function getInputHash() {
-    if(!empty($this->input_hash)) {
-      return new ResolvedPromise( $this->input_hash );
-    }
+  public static function calculateFileSize(string $file) {
     $defer = new Deferred;
-    static::getFileHash($this->input_path)
-      ->then(function($hash) use ($defer) {
-        $this->input_hash = $hash;
-        $this->save()
-          ->then(function($saved) use ($defer,$hash) {
-            $defer->resolve($hash);
-          })
-          ->otherwise(function($e) use ($defer) {
-            $defer->reject($e);
-          });
-      })
-      ->otherwise(function($e) use ($defer) {
-        $defer->reject($e);
-      });
-    return $defer->promise();
-  }
-
-
-
-
-  /**
-   *
-   * Gets the output hash
-   *
-   */
-  public function getOutputHash() {
-    if(!empty($this->ouput_hash)) {
-      return new ResolvedPromise( $this->output_hash );
-    }
-    $defer = new Deferred;
-    static::getFileHash($this->output_path)
-      ->then(function($hash) use ($defer) {
-        $this->output_hash = $hash;
-        $this->save()
-          ->then(function($saved) use ($defer,$hash) {
-            $defer->resolve($hash);
-          })
-          ->otherwise(function($e) use ($defer) {
-            $defer->reject($e);
-          });
+    static::runCmd('ls -l "'.$file.'" | awk \'{print $5}\'')
+      ->then(function($size) use ($defer) {
+        $size = trim($size);
+        $defer->resolve( (int)$size );
       })
       ->otherwise(function($e) use ($defer) {
         $defer->reject($e);
@@ -516,7 +479,7 @@ final class Conversion {
    * Gets the mime type from the file system
    *
    */
-  public static function getMime(string $file) {
+  public static function calculateMime(string $file) {
     $defer = new Deferred;
     static::runCmd('file --mime-type -b "'.$file.'"')
       ->then(function($res) use ($defer) {
@@ -530,16 +493,6 @@ final class Conversion {
     return $defer->promise();
   }
 
-
-
-  /**
-   *
-   * Gets the file input mime
-   *
-   */
-  public function getInputMime() {
-    return static::getMime($this->input_path);
-  }
 
 
 
@@ -614,10 +567,9 @@ final class Conversion {
     $this->status = 'converting';
     $this->save()
       ->then(function($saved) {
-        return $this->getInputMime();
-      })
-      ->then(function($mime) use ($defer) {
+        $mime = $this->getInputMime();
         $type = substr($mime, 0, 5);
+        echo "CONVERTING $type {$this->id}\n";
         if($type == 'video') {
           $proc = static::convertVideo( $this->getInputPath(), $this->getOutputPath() );
         } else if($type == 'image') {
@@ -627,21 +579,30 @@ final class Conversion {
         }
         return $proc;
       })
-      ->then(function ($outpath) use ($defer) {
+      ->then(function($outpath) {
         $this->status = 'completed';
-        $this->output_date = gmdate('c');
-        $this->save()
-          ->then(function($saved) use ($defer) {
-            $defer->resolve($saved);
-          })
-          ->otherwise(function($e) use ($defer) {
-            $defer->reject($e);
-          });
+        $this->output_date = time();
+        $this->output_path = $outpath;
+        $this->checked = time();
+        $this->expires = time()+TTL;
+        return static::calculateFileSize( $outpath );
+      })
+      ->then(function($size) {
+        $this->output_size = $size;
+        return static::calculateFileHash( $this->getOutputPath() );
+      })
+      ->then(function($hash) {
+        $this->output_hash = $hash;
+        return $this->save();
+      })
+      ->then(function($saved) use ($defer) {
+        $defer->resolve($saved);
       })
       ->otherwise(function($e) use ($defer) {
         $this->error = $e->getMessage();
         $this->checked = time();
         $this->status = 'failed';
+        $this->expires = time()+TTL;
         $this->save()
           ->always(function($saved) use ($defer, $e) {
             $defer->reject($e);
@@ -655,12 +616,100 @@ final class Conversion {
 
   /**
    *
-   * Returns the status
+   * Gets the disk free space on the files folder
    *
    */
-  public function getStatus() {
+  public function calculateDiskFreeSpace() {
+    $defer = new Deferred;
+    static::runCmd('df files | awk \'FNR==2{print \$4}\'')
+      ->then(function($bytes) use ($defer) {
+        $bytes = trim($bytes);
+        $bytes = (int)$bytes;
+        $defer->resolve($bytes);
+      })
+      ->otherwise(function($e) use ($defer) {
+        $defer->reject($e);
+      });
+    return $defer->promise();
+  }
+
+
+
+
+  /** 
+   *
+   * Checks if a conversion is expired
+   *
+   */
+  public function isExpired() {
+    return ($this->expires && $this->expires > time()) ? true : false;
+  }
+
+
+
+
+  // -------------------------- GETTERS ----------------------------
+
+
+
+  public function getId() : string {
+    return $this->id;
+  }
+  public function getStatus() : string {
     return $this->status;
   }
+  public function getCreated() : int {
+    return $this->created;
+  }
+
+
+  public function getInputSource() : string {
+    return $this->input_source ?? '';
+  }
+  public function getInputHash() : string {
+    return $this->input_hash ?? '';
+  }
+  public function getInputMime() : string {
+    return $this->input_mime ?? '';
+  }
+  public function getInputPath() : string {
+    if(empty($this->input_path)) {
+      $this->input_path = 'files/'.$this->id;
+    }
+    return $this->input_path;
+  }
+
+
+  public function getOutputHash() : string {
+    return $this->output_hash ?? '';
+  }
+  public function getOutputPath() : string {
+    if(empty($this->output_path)) {
+      $this->output_path = 'files/'.$this->id.'.webp';
+    }
+    return $this->output_path;
+  }
+  public function getOutputDate() : int {
+    return $this->output_date;
+  }
+  public function getOutputSize() : int {
+    return $this->output_size;
+  }
+
+
+  public function getDownloadToken() : string {
+    return $this->download_token;
+  }
+  public function getExpires() : int {
+    return $this->expires;
+  }
+  public function getChecked() : int {
+    return $this->checked;
+  }
+  public function getError() : string {
+    return $this->error;
+  }
+
 
 }
 

@@ -1,0 +1,195 @@
+<!doctype html>
+<html>
+<head>
+  <title>WebPit</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://cdn.rawgit.com/Chalarangelo/mini.css/v3.0.1/dist/mini-default.min.css">
+</head>
+<body>
+
+<div class="container">
+  <h1>
+    WebPit
+    <small>Convert images & videos to <a href="https://developers.google.com/speed/webp/">WebP</a></small>
+  </h1>
+  <p>
+    
+  </p>
+
+  <form method="POST" action="/convert" enctype="multipart/form-data" id="form">
+    <div class="row">
+      <div class="col-sm-12 col-md-6">
+        <fieldset>
+          <legend>File</legend>
+          <div class="row">
+            <input type="file" name="file" accept=".jpeg,.jpg,.png,.mp4,.mov" id="file-input" style="display:none;" required />
+            <label for="file-input" class="button col-sm" style="margin:calc(var(--universal-margin) / 2);">Upload file</label>
+          </div>
+          <p><small>Accepted formats: JPEG, JPG, PNG, MP4, MOV</small></p>
+        </fieldset>
+        <button type="submit" class="primary">
+          Convert
+        </button>
+        <small>You can also just drop an image or video to this page.</small>
+      </div>
+      <div class="col-sm-12 col-md-6">
+        <fieldset>
+          <legend>Authorization</legend>
+          <div class="row">
+            <input type="text" name="auth" placeholder="Authorization key" class="col-sm" id="auth" />
+          </div>
+          <p><small>If the server is configured to use an authorization key, write it here.</small></p>
+        </fieldset>
+      </div>
+    </div>
+  </form>
+
+  <h2>Conversions</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Created</th>
+        <th>Status</th>
+        <th>Options</th>
+      </tr>
+    </thead>
+    <tbody id="conversions">
+      <template>
+      <tr class="conversion" id="[[id]]">
+        <td>[[id]]</td>
+        <td>[[created]]</td>
+        <td>
+          <span class="status" style="margin-right: 1rem;">
+            [[status]]
+          </span>
+          <div class="spinner" style="margin:-0.5rem;"></div>
+        </td>
+        <td style="padding: 0.2rem;">
+          <a disabled target="_blank" class="download button small" href="/download?id=[[id]]&token=[[download_token]]">Download</a>
+          <button onclick="$(this).closest('.conversion').remove();" class="button small">Remove</button>
+        </td>
+      </tr>
+      </template>
+    </tbody>
+  </table>
+
+
+  <p>
+    Developed by PUBLITAR SRL. More information at: <a href="https://publitar.com/p/webpit">publitar.com/p/webpit</a>
+  </p>
+
+</div>
+
+
+<script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
+<script type="text/javascript">
+var template = false;
+$(function() {
+
+  // Drag & Drop Hook
+  $('html').on('dragover', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  $('html').on('drop', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    var file = e.originalEvent.dataTransfer.files;
+    var file_data = file[0];
+    var form_data = new FormData();                  
+    form_data.append('file', file_data);
+    form_data.append('auth', $('[type="auth"]').val() );
+    submitForm(form_data);
+  });
+
+  // Form Hook
+  $('#form').on('submit', function(e) {
+    var file_data = $('[type="file"]').prop('files')[0];
+    if(file_data != undefined) {
+      var form_data = new FormData();                  
+      form_data.append('file', file_data);
+      form_data.append('auth', $('[type="auth"]').val() );
+      submitForm(form_data);
+    }
+    return false;
+  });
+
+  template = $('#conversions template').html();
+
+  $('body').on('click', '[disabled]', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  setInterval(function() {
+    $('.conversion').each(function() {
+      var id = $(this).attr('id');
+      var checking = $(this).data('query');
+      if(!checking) {
+        $(this).data('query', setTimeout(function() { query(id); }, 1000 ) );
+      }
+    });
+  }, 1000);
+
+});
+
+
+function query(id) {
+  $.ajax({
+    type: 'GET',
+    url: '/query?id='+id,
+    success: function(response) {
+      var $row = $('#'+id);
+      $row.find('.status').html( response.status );
+      switch(response.status) {
+        case 'completed':
+          $row.find('.download').removeAttr('disabled');
+        case 'failed':
+          $row.find('.spinner').hide();
+          break;
+        default:
+          $row.data('query', setTimeout(function() { query(id); }, 1000 ) );
+          break;
+      }
+    },
+    error: function() {
+      var $row = $('#'+id);
+      $row.data('query', setTimeout(function() { query(id); }, 1000 ) );
+    }
+  });
+}
+
+function submitForm(formData) {
+  var url = $('#form').attr('action');
+  var method = $('#form').attr('method');
+  var auth = $('#auth').val();
+  var headers = {};
+  if(auth.length) {
+    headers['Authorization'] = 'Basic '+btoa(auth);
+  }
+  $.ajax({
+    type: method,
+    url: url,
+    headers: headers,
+    contentType: false,
+    processData: false,
+    data: formData,
+    success: function(response) {
+      for(conv of response.conversions) {
+        var html = template;
+        for(k in conv) {
+          html = html.replace(new RegExp('\\[\\['+k+'\\]\\]','g'), conv[k]);
+        }
+        $('#conversions').append( html );
+      }
+    }
+  });
+
+}
+
+</script>
+
+</body>
+</html>
