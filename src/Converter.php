@@ -24,12 +24,8 @@ class Converter {
   private $dataRoot;
 
   private $conversions = [];
-  private $status = [
-    'queued',
-    'converting',
-    'completed',
-    'failed',
-  ];
+  private $status = [];
+  private $diskFreeSpace = 0;
 
 
   /**
@@ -67,31 +63,71 @@ class Converter {
           Conversion::get($id);
         }
       }
+
+      Conversion::calculateDiskFreeSpace()
+        ->then(function($space) { 
+          $this->diskFreeSpace = $space;
+        });
     });
 
 
+    // Check disk free
+    $this->reactLoop->addPeriodicTimer(60, function() {
+      Conversion::calculateDiskFreeSpace()
+        ->then(function($space) { 
+          $this->diskFreeSpace = $space;
+        });
+    });
+
 
     // Regularly loop through active conversions
-    $this->reactLoop->addPeriodicTimer(0.5, function() {
-      $this->status['pending'] = 
-      $this->status['queued'] =
-      $this->status['converting'] = 
-      $this->status['completed'] =
-      $this->status['failed'] = 0;
+    $this->reactLoop->addPeriodicTimer(1, function() {
+      $status = [
+           'pending' => 0,
+            'queued' => 0,
+        'converting' => 0,
+         'completed' => 0,
+            'failed' => 0,
+      ];
       foreach($this->conversions as $conv) {
         if($conv->isExpired()) {
           $conv->delete();
         } else {
-          $status = $conv->getStatus();
-          $this->status[$status]++;
-          if($status == 'queued') {
+          $objStatus = $conv->getStatus();
+          $status[ $objStatus ]++;
+          if($objStatus == 'queued') {
             $conv->convert();
           }
         }
       }
+      $this->status = $status;
     });
 
 
+  }
+
+
+
+
+  /**
+   *
+   * Returns status
+   *
+   */
+  public function getStatus() {
+    return $this->status;
+  }
+
+
+
+
+  /**
+   *
+   * Gets the free space
+   *
+   */
+  public function getDiskFreeSpace() {
+    return $this->diskFreeSpace;
   }
 
 

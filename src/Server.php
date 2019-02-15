@@ -36,6 +36,9 @@ final class Server {
   private $converter;
 
 
+  private static $version = 'WebPit/0.1 (https://publitar.com/p/webpit)';
+
+
   /**
    *
    * Constructor
@@ -66,7 +69,7 @@ final class Server {
     // Server
     $this->server = new StreamingServer([
           new WithHeadersMiddleware([
-            'X-Powered-By' => 'WebPit/0.1 (https://publitar.com/p/webpit)',
+            'X-Powered-By' => static::$version,
           ]),
           function (ServerRequestInterface $request, callable $next) {
             return resolve($next($request))
@@ -230,7 +233,10 @@ final class Server {
         function($e) use ($defer) {
           $defer->reject($e);
         }
-      );
+      )
+      ->otherwise(function($e) use ($defer) {
+        $defer->resolve( $this->jsonResponse( $e->getCode(), ['error'=>$e->getMessage()] ) );
+      });
     return $defer->promise();
   }
 
@@ -243,6 +249,9 @@ final class Server {
    *
    */
   public function handleConvert(ServerRequestInterface $req) {
+    if(!$this->isAuthorized($req)) {
+      return new ResolvedPromise( $this->jsonResponse( 401, ['error'=>'unauthorized']) );
+    }
     $contentType = $req->getHeaderLine('Content-Type') ?? false;
     if(!$contentType) {
       return new ResolvedPromise( $this->jsonResponse( 400, ['error'=>'bad request'] ) );
@@ -313,7 +322,7 @@ final class Server {
         $defer->resolve( $this->jsonResponse( 201, $res ) );
       })
       ->otherwise(function($e) use ($defer) {
-        $defer->reject($e);
+        $defer->resolve( $this->jsonResponse( $e->getCode(), ['error'=>$e->getMessage()] ) );
       });
     return $defer->promise();
   }
@@ -327,13 +336,18 @@ final class Server {
    *
    */
   public function handleQuery(ServerRequestInterface $req) {
-    $id = $req->getQueryParams()['id'] ?? false;
+    $get = $req->getQueryParams();
+    $id = $get['id'] ?? false;
     if(empty($id)) {
-      return RejectedPromise( $this->jsonResponse( 400, ['error'=>'bad request']) );
+      return new ResolvedPromise( $this->jsonResponse( 400, ['error'=>'bad request']) );
     }
     $defer = new Deferred;
     Conversion::get($id)
-      ->then(function($obj) use ($defer) {
+      ->then(function($obj) use ($defer, $req, $get) {
+        $token = $get['token'] ?? $get['download_token'] ?? false;
+        if(!$this->isAuthorized($req) && $token != $obj->getDownlaodToken()) {
+          return $defer->resolve( $this->jsonResponse( 401, ['error'=>'unauthorized']) );
+        }
         $tmp = [];
         $tmp['id'] = $obj->getId();
         $tmp['input_hash'] = $obj->getInputHash();
@@ -357,7 +371,7 @@ final class Server {
         $defer->resolve( $this->jsonResponse( $code, $tmp) );
       })
       ->otherwise(function($e) use ($defer) {
-        $defer->resolve( $this->jsonResponse( $e->getCode(), $e->getMessage() ) );
+        $defer->resolve( $this->jsonResponse( $e->getCode(), ['error'=>$e->getMessage()] ) );
       });
     return $defer->promise();
   }
@@ -375,7 +389,7 @@ final class Server {
     $id = $get['id'] ?? false;
     $token = $get['token'] ?? $get['download_token'] ?? false;
     if(empty($id) || empty($token)) {
-      return ResolvedPromise( $this->jsonResponse( 400, ['error'=>'bad request'] ) );
+      return new ResolvedPromise( $this->jsonResponse( 400, ['error'=>'bad request'] ) );
     }
     $defer = new Deferred;
     Conversion::get($id)
@@ -406,7 +420,7 @@ final class Server {
         $defer->resolve($res);
       })
       ->otherwise(function($e) use ($defer) {
-        $defer->reject($e);
+        $defer->resolve( $this->jsonResponse( $e->getCode(), ['error'=>$e->getMessage()] ) );
       });
     return $defer->promise();
   }
@@ -420,7 +434,27 @@ final class Server {
    *
    */
   public function handleStatus(ServerRequestInterface $req) {
+    if(!$this->isAuthorized($req)) {
+      return new ResolvedPromise( $this->jsonResponse( 401, ['error'=>'unauthorized']) );
+    }
+    $status = $this->converter->getStatus();
+    $res = [];
+    $res['conversions'] = [
+       'completed' => $status['completed'] ?? 0,
+      'converting' => [
+                    'images' => Conversion::getConvertingImages(),
+                    'videos' => Conversion::getConvertingVideos(),
+                      ],
+          'failed' => $status['failed'] ?? 0,
+         'pending' => $status['pending'] ?? 0,
+          'queued' => $status['queued'] ?? 0,
 
+    ];
+    $res['server'] = [
+        'version' => static::$version,
+           'disk' => $this->converter->getDiskFreeSpace(),
+    ];
+    return $this->jsonResponse( 200, $res);
   }
 
 
@@ -439,6 +473,29 @@ final class Server {
     );
   }
 
+
+
+
+  /**
+   *
+   * Checks for the authorization header
+   *
+   */
+  private function isAuthorized(ServerRequestInterface $req) : bool {
+    if(empty($this->config['auth'])) {
+      return true;
+    }
+    $authHeader = $req->getHeaderLine('Authorization');
+    if(empty($authHeader)) {
+      return false;
+    }
+    $parts = explode(' ', $authHeader);
+    $key = base64_decode($parts[1]);
+    if($key == $this->config['auth']) {
+      return true;
+    }
+    return false;
+  }
 
 
 }

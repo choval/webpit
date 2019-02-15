@@ -85,13 +85,13 @@ final class Conversion {
    */
   public function __construct(array $row=[]) {
     if(empty(static::$fs)) {
-      throw new \Exception('MISSING FILESYSTEM');
+      throw new \Exception('MISSING FILESYSTEM', 500);
     }
     if(empty(static::$loop)) {
-      throw new \Exception('MISSING REACT LOOP');
+      throw new \Exception('MISSING REACT LOOP', 500);
     }
     if(empty(static::$converter)) {
-      throw new \Exception('MISSING CONVERTER');
+      throw new \Exception('MISSING CONVERTER', 500);
     }
     if(empty($row['id'])) {
       $row['id'] = static::generateId();
@@ -132,7 +132,7 @@ final class Conversion {
     });
     $proc->on('exit', function($exitCode, $termSignal) use ($defer, &$buffer) {
       if($exitCode) {
-        $defer->reject( new \Exception('EXIT CODE '.$exitCode) );
+        $defer->reject( new \Exception('EXIT CODE '.$exitCode, 500) );
       }
       $defer->resolve($buffer);
     });
@@ -205,6 +205,30 @@ final class Conversion {
 
   /**
    *
+   * Gets converting images
+   *
+   */
+  public static function getConvertingImages() : int {
+    return static::$convertingImages;
+  }
+
+
+
+
+  /** 
+   *
+   * Gets converting videos
+   *
+   */
+  public static function getConvertingVideos() : int {
+    return static::$convertingVideos;
+  }
+
+
+
+
+  /**
+   *
    * Sets the input
    *
    */
@@ -232,7 +256,7 @@ final class Conversion {
       }
     }
     else {
-      $defer->reject( new \Exception('UNKNOWN INPUT') );
+      $defer->reject( new \Exception('UNKNOWN INPUT', 500) );
     }
     if($promise) {
       $promise
@@ -295,7 +319,7 @@ final class Conversion {
       $stream->on('data', function($chunk) use ($fh, &$bytes, $defer, $stream) {
         $written = fwrite($fh, $chunk);
         if($written === false) {
-          $defer->reject( new \Exception('FWRITE FAILED') );
+          $defer->reject( new \Exception('FWRITE FAILED', 500) );
           $stream->close();
         }
         $bytes += $written;
@@ -514,7 +538,7 @@ final class Conversion {
       if(empty($exitCode)) {
         return $defer->resolve($to);
       }
-      $defer->reject( new \Exception("CONVERT IMAGE FAILED WITH EXIT $exitCode") );
+      $defer->reject( new \Exception("CONVERT IMAGE FAILED WITH EXIT $exitCode", 500) );
     });
     return $defer->promise();
   }
@@ -539,7 +563,7 @@ final class Conversion {
       if(empty($exitCode)) {
         return $defer->resolve($to);
       }
-      $defer->reject( new \Exception("CONVERT VIDEO FAILED WITH EXIT $exitCode") );
+      $defer->reject( new \Exception("CONVERT VIDEO FAILED WITH EXIT $exitCode", 500) );
     });
     return $defer->promise();
   }
@@ -554,10 +578,10 @@ final class Conversion {
    */
   public function convert() {
     if($this->status == 'pending') {
-      return new RejectedPromise( new \Exception('INPUT PENDING') );
+      return new RejectedPromise( new \Exception('INPUT PENDING', 500) );
     }
     if($this->status != 'queued') {
-      return new RejectedPromise( new \Exception('ALREADY CONVERTED') );
+      return new RejectedPromise( new \Exception('ALREADY CONVERTED', 500) );
     }
     $defer = new Deferred;
     $promises = [];
@@ -575,7 +599,7 @@ final class Conversion {
         } else if($type == 'image') {
           $proc = static::convertImage( $this->getInputPath(), $this->getOutputPath() );
         } else {
-          $proc = new RejectedPromise( new \Exception('UNKNOWN FORMAT') );
+          $proc = new RejectedPromise( new \Exception('UNKNOWN FORMAT', 500) );
         }
         return $proc;
       })
@@ -619,9 +643,9 @@ final class Conversion {
    * Gets the disk free space on the files folder
    *
    */
-  public function calculateDiskFreeSpace() {
+  public static function calculateDiskFreeSpace() {
     $defer = new Deferred;
-    static::runCmd('df files | awk \'FNR==2{print \$4}\'')
+    static::runCmd('df files | awk \'FNR==2{print $4}\'')
       ->then(function($bytes) use ($defer) {
         $bytes = trim($bytes);
         $bytes = (int)$bytes;
@@ -642,7 +666,7 @@ final class Conversion {
    *
    */
   public function isExpired() {
-    return ($this->expires && $this->expires > time()) ? true : false;
+    return ($this->expires && $this->expires < time()) ? true : false;
   }
 
 
